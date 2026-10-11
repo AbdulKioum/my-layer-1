@@ -31,7 +31,7 @@ export default function App() {
       <aside className="sidebar">
         <div className="brand">
           <span className="egg" />
-          My Layer 1
+          My Layer
         </div>
         <nav className="nav">
           {NAV.map(([key, label]) => (

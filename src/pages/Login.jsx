@@ -29,7 +29,7 @@ export default function Login() {
       <form className="card login" onSubmit={submit}>
         <div className="brand dark">
           <span className="egg" />
-          My Layer 1
+          My Layer
         </div>
         <div className="field">
           <label>Email</label>
