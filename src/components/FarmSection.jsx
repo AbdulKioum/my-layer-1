@@ -21,22 +21,59 @@ import ActionMenu from './ActionMenu'
 
 const str = (v) => (v ? String(v) : '')
 
-const newDraft = (farm, feedItems) => {
+// স্মার্ট অটো-ফিল লজিক
+const newDraft = (farm, feedItems, lastRow) => {
   const date = todayStr()
+  let eggCase = ''
+  let totalEgg = ''
+  let feedBag = ''
+  let feedKg = ''
+  let pricePerEgg = ''
+  let feedItem = defaultFeedFor(daysBetween(farm.hatch_date, date), feedItems)
+
+  if (lastRow) {
+    let newGap = 1
+    if (date > lastRow.record_date) {
+      newGap = daysBetween(lastRow.record_date, date)
+    }
+    const oldGap = lastRow.gap || 1
+
+    if (lastRow.totalEgg) {
+      // আগের গ্যাপ দিয়ে ভাগ করে ১ দিনের গড় বের করে নতুন গ্যাপ দিয়ে গুণ
+      const expectedEgg = Math.round((lastRow.totalEgg / oldGap) * newGap)
+      totalEgg = String(expectedEgg)
+      eggCase = String(round(expectedEgg / 30, 2))
+    }
+    
+    if (lastRow.price_per_egg) {
+      pricePerEgg = String(lastRow.price_per_egg)
+    }
+    
+    if (lastRow.feedKg) {
+      const expectedFeedKg = (lastRow.feedKg / oldGap) * newGap
+      feedKg = String(round(expectedFeedKg, 2))
+      feedBag = String(round(expectedFeedKg / 50, 2))
+    }
+    
+    if (lastRow.feed_item) {
+      feedItem = lastRow.feed_item
+    }
+  }
+
   return {
     id: null,
     record_date: date,
     mortality: '',
-    egg_case: '',
-    total_egg: '',
+    egg_case: eggCase,
+    total_egg: totalEgg,
     medicine: '',
     medicine_cost: '',
     vaccine: '',
     vaccine_cost: '',
-    price_per_egg: '',
-    feed_item: defaultFeedFor(daysBetween(farm.hatch_date, date), feedItems),
-    feed_bag: '',
-    feed_kg: '',
+    price_per_egg: pricePerEgg,
+    feed_item: feedItem,
+    feed_bag: feedBag,
+    feed_kg: feedKg,
     body_weight: '', 
     feed_touched: false,
   }
@@ -56,7 +93,7 @@ const draftFromRow = (r) => ({
   feed_item: r.feed_item || '',
   feed_bag: str(r.feedBag ?? r.feed_bag),
   feed_kg: str(r.feedKg ?? num(r.feed_bag) * 50),
-  body_weight: str(r.body_weight), 
+  body_weight: str(r.body_weight),
   feed_touched: true,
   orig_feed_item: r.feed_item || '',
   feed_snapshot: num(r.feed_price_per_bag),
@@ -155,6 +192,7 @@ export default function FarmSection({ farm, index, vaccines, feedItems, layerSta
   const [editingFarm, setEditingFarm] = useState(false)
   const [showCost, setShowCost] = useState(false)
   const [showCull, setShowCull] = useState(false)
+  const [showInfo, setShowInfo] = useState(false)
   const readOnly = !!farm.culled_at
   const colCount = readOnly ? 22 : 23
 
@@ -210,16 +248,37 @@ export default function FarmSection({ farm, index, vaccines, feedItems, layerSta
 
   const set = (k) => (e) => setDraft((x) => ({ ...x, [k]: e.target.value }))
 
+  // ডেট চেঞ্জ করলে স্মার্ট রি-ক্যালকুলেশন
   function setDate(e) {
-    const date = e.target.value
-    setDraft((x) => ({
-      ...x,
-      record_date: date,
-      feed_item:
-        x.feed_touched || !date
-          ? x.feed_item
-          : defaultFeedFor(daysBetween(farm.hatch_date, date), feedItems),
-    }))
+    const newDate = e.target.value
+    setDraft((x) => {
+      let updates = { record_date: newDate }
+      if (!x.feed_touched || !newDate) {
+        updates.feed_item = newDate ? defaultFeedFor(daysBetween(farm.hatch_date, newDate), feedItems) : x.feed_item
+      }
+      
+      // শুধুমাত্র নতুন রো (Draft) এর ক্ষেত্রে ডেট পরিবর্তন করলে অটো-ফিল আপডেট হবে
+      if (!x.id && rows.length > 0 && newDate) {
+        const lastRow = rows[rows.length - 1]
+        if (newDate > lastRow.record_date) {
+          const newGap = Math.max(1, daysBetween(lastRow.record_date, newDate))
+          const oldGap = lastRow.gap || 1
+          
+          if (lastRow.totalEgg) {
+            const expectedEgg = Math.round((lastRow.totalEgg / oldGap) * newGap)
+            updates.total_egg = String(expectedEgg)
+            updates.egg_case = String(round(expectedEgg / 30, 2))
+          }
+          if (lastRow.feedKg) {
+            const expectedFeedKg = (lastRow.feedKg / oldGap) * newGap
+            updates.feed_kg = String(round(expectedFeedKg, 2))
+            updates.feed_bag = String(round(expectedFeedKg / 50, 2))
+          }
+        }
+      }
+
+      return { ...x, ...updates }
+    })
   }
 
   function setEgg(kind, v) {
@@ -266,7 +325,7 @@ export default function FarmSection({ farm, index, vaccines, feedItems, layerSta
       feed_item: draft.feed_item,
       feed_bag: num(draft.feed_bag), 
       feed_price_per_bag: d.feed_price_per_bag,
-      body_weight: draft.body_weight === '' ? null : num(draft.body_weight) // ওজন সেভ করা
+      body_weight: draft.body_weight === '' ? null : num(draft.body_weight)
     }
     const q = draft.id
       ? supabase.from('farm_records').update(payload).eq('id', draft.id)
@@ -293,7 +352,6 @@ export default function FarmSection({ farm, index, vaccines, feedItems, layerSta
     else onFarmChanged()
   }
 
- 
   const getStandardWeight = (date) => {
     const ageWeeks = Math.floor(daysBetween(farm.hatch_date, date) / 7)
     const std = layerStandards?.find(l => l.breed === farm.breed && l.age_weeks === ageWeeks)
@@ -310,7 +368,6 @@ export default function FarmSection({ farm, index, vaccines, feedItems, layerSta
       <td>{formatAgeMode(farm.hatch_date, draft.record_date, ageMode)}</td>
       <td><input type="number" min="0" value={draft.mortality} onChange={set('mortality')} style={{width: '60px'}}/></td>
       <td className="num">{fmt(d.totalBird)}</td>
-      
       
       <td><input type="number" min="0" step="any" value={draft.body_weight} onChange={set('body_weight')} style={{width: '70px'}} placeholder="gm" /></td>
       <td className="num" style={{ color: 'var(--muted)' }}>{getStandardWeight(draft.record_date)}</td>
@@ -374,8 +431,8 @@ export default function FarmSection({ farm, index, vaccines, feedItems, layerSta
     'AGE',
     'Mortality',
     'Total Bird',
-    'Weight (g)', 
-    'Standard (g)', 
+    'Weight (g)',
+    'Standard (g)',
     'Egg Case',
     'Total Egg',
     'Egg %',
@@ -398,13 +455,22 @@ export default function FarmSection({ farm, index, vaccines, feedItems, layerSta
   return (
     <section className="farm" style={{ '--accent': accent, '--soft': soft }}>
       <div className="farm-head">
-        <h2> {farm.name}</h2>
-        <div className="meta">
-          <span><b>Hatch Date:</b> {fmtDate(farm.hatch_date)}</span>
-          <span><b>Hatchery:</b> {farm.hatchery || '-'}</span>
-          <span><b>Breed:</b> {farm.breed || '-'}</span>
-          <span><b>Total Bird:</b> {fmt(farm.total_bird)}</span>
-        </div>
+        <h2 style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          Farm Name: {farm.name}
+          <button 
+            className="btn small alt" 
+            onClick={() => setShowInfo(true)}
+            style={{ borderRadius: '20px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', padding: '4px 10px' }}
+          >
+            <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="16" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12.01" y2="8"></line>
+            </svg>
+            Farm Info
+          </button>
+        </h2>
+        
         <ActionMenu
           items={
             readOnly
@@ -420,6 +486,37 @@ export default function FarmSection({ farm, index, vaccines, feedItems, layerSta
           }
         />
       </div>
+
+      {showInfo && (
+        <div className="modal-back" onClick={() => setShowInfo(false)}>
+          <div className="modal small" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h2>Farm Info: {farm.name}</h2>
+              <button className="btn small alt" onClick={() => setShowInfo(false)}>
+                Close
+              </button>
+            </div>
+            <div style={{ display: 'grid', gap: '12px', fontSize: '15px', color: 'var(--ink)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--line)', paddingBottom: '8px' }}>
+                <span style={{ color: 'var(--muted)' }}>Hatch Date</span>
+                <b>{fmtDate(farm.hatch_date)}</b>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--line)', paddingBottom: '8px' }}>
+                <span style={{ color: 'var(--muted)' }}>Hatchery</span>
+                <b>{farm.hatchery || '-'}</b>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--line)', paddingBottom: '8px' }}>
+                <span style={{ color: 'var(--muted)' }}>Breed</span>
+                <b>{farm.breed || '-'}</b>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--muted)' }}>Initial Bird</span>
+                <b>{fmt(farm.total_bird)}</b>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {readOnly && (
         <div className="cull-info">
@@ -551,9 +648,12 @@ export default function FarmSection({ farm, index, vaccines, feedItems, layerSta
                 <td colSpan={colCount}>
                   <button
                     className="btn small yolk"
-                    onClick={() => setDraft(newDraft(farm, feedItems))}
+                    onClick={() => {
+                      const lastRow = rows.length > 0 ? rows[rows.length - 1] : null
+                      setDraft(newDraft(farm, feedItems, lastRow))
+                    }}
                   >
-                    + Add Row
+                    + Add Daily Record
                   </button>
                 </td>
               </tr>
