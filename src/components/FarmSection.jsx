@@ -11,6 +11,7 @@ import {
   num,
   round,
   lastVaccine,
+  addDays,
 } from '../utils'
 import { AGE_MODES, PALETTE, defaultFeedFor } from '../constants'
 import FarmForm from './FarmForm'
@@ -35,6 +36,7 @@ const newDraft = (farm, feedItems) => {
     price_per_egg: '',
     feed_item: defaultFeedFor(daysBetween(farm.hatch_date, date), feedItems),
     feed_bag: '',
+    feed_kg: '',
     feed_touched: false,
   }
 }
@@ -51,23 +53,94 @@ const draftFromRow = (r) => ({
   vaccine_cost: str(r.vaccine_cost),
   price_per_egg: str(r.price_per_egg),
   feed_item: r.feed_item || '',
-  feed_bag: str(r.feed_bag),
+  feed_bag: str(r.feedBag ?? r.feed_bag),
+  feed_kg: str(r.feedKg ?? num(r.feed_bag) * 50),
   feed_touched: true,
   orig_feed_item: r.feed_item || '',
   feed_snapshot: num(r.feed_price_per_bag),
 })
 
-function VaccineLine({ records }) {
+function VaccineLine({ farm, records, vaccines }) {
   const v = lastVaccine(records)
   let text = 'No vaccine given yet.'
   if (v) {
     const ago = v.daysAgo === 0 ? 'today' : v.daysAgo === 1 ? '1 day ago' : `${v.daysAgo} days ago`
     text = `${v.name}, ${ago} (${fmtDate(v.date)})`
   }
+
+  const today = todayStr()
+  const currentAgeDays = daysBetween(farm.hatch_date, today)
+
+  let nextTexts = []
+  let isScheduled = false
+
+  // ১. সাধারণ রুটিন (১৮ সপ্তাহের আগ পর্যন্ত)
+  if (currentAgeDays <= 18 * 7) {
+    const upcoming = vaccines.filter(vac => {
+      const vAge = Number(vac.age_days)
+      return vAge >= currentAgeDays && vAge <= currentAgeDays + 7
+    })
+    
+    if (upcoming.length > 0) {
+      isScheduled = true
+      upcoming.forEach(vac => {
+        const targetDate = addDays(farm.hatch_date, vac.age_days)
+        nextTexts.push(`${vac.name} (at ${vac.age_days} days on ${fmtDate(targetDate)})`)
+      })
+    }
+  }
+
+  // ২. রিকারিং (Recurring) ND/IB Live ভ্যাকসিন
+  let lastRecurringDate = null
+  const sortedRecs = [...records].sort((a, b) => a.record_date.localeCompare(b.record_date))
+  
+  for (const r of sortedRecs) {
+    if (!r.vaccine) continue
+    const vName = r.vaccine.toUpperCase().replace(/\s+/g, '')
+    
+    if (vName.includes('IB+ND+EDS') || vName.includes('ND+IB+EDS')) {
+      lastRecurringDate = r.record_date
+    } 
+    else if (lastRecurringDate && (vName.includes('ND/IB') || vName.includes('ND+IB') || vName.includes('IB+ND') || vName.includes('IB/ND'))) {
+      lastRecurringDate = r.record_date
+    }
+  }
+
+  if (lastRecurringDate) {
+    const daysSinceLast = daysBetween(lastRecurringDate, today)
+    const daysToNext = 30 - daysSinceLast
+    
+    if (daysToNext <= 7) {
+      isScheduled = true
+      const nextDate = addDays(lastRecurringDate, 30)
+      
+      let dueStr = ''
+      if (daysToNext === 0) {
+        dueStr = 'today'
+      } else if (daysToNext > 0) {
+        dueStr = `in ${daysToNext} days`
+      } else {
+        dueStr = `overdue by ${Math.abs(daysToNext)} days (30 days crossed)`
+      }
+      
+      nextTexts.push(`ND/IB Live (${dueStr} on ${fmtDate(nextDate)})`)
+    }
+  }
+
+  let nextDisplay = null
+  if (isScheduled) {
+    nextDisplay = nextTexts.join(', ')
+  } else if (currentAgeDays <= 18 * 7) {
+    nextDisplay = 'No vaccine scheduled in next 7 days'
+  }
+
   return (
-    <p className="vaccine-line">
-      <b>Last vaccine:</b> {text}
-    </p>
+    <div className="vaccine-line" style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+      <div><b>Last vaccine:</b> {text}</div>
+      {nextDisplay && (
+        <div><b>Next vaccine:</b> <span style={{ color: 'var(--danger)' }}>{nextDisplay}</span></div>
+      )}
+    </div>
   )
 }
 
@@ -83,7 +156,7 @@ export default function FarmSection({ farm, index, vaccines, feedItems, onFarmCh
   const [showCost, setShowCost] = useState(false)
   const [showCull, setShowCull] = useState(false)
   const readOnly = !!farm.culled_at
-  const colCount = readOnly ? 18 : 19
+  const colCount = readOnly ? 20 : 21
 
   const [accent, soft] = PALETTE[index % PALETTE.length]
 
@@ -106,22 +179,34 @@ export default function FarmSection({ farm, index, vaccines, feedItems, onFarmCh
   const hidden = rows.length - visible.length
   const canLess = rows.length > 3 && visible.length > 3
 
-  // draft / edit row er hisab
   let d = null
+  let gap = 1
   if (draft) {
     const item = feedItems.find((f) => f.name === draft.feed_item)
     const keepOld = draft.id && draft.feed_item === draft.orig_feed_item
     const feedPrice = keepOld ? draft.feed_snapshot : num(item?.price_per_bag)
-    const deadBefore = records
-      .filter((r) => r.id !== draft.id && r.record_date <= draft.record_date)
-      .reduce((s, r) => s + num(r.mortality), 0)
+    
+    const beforeDraft = records
+      .filter((r) => r.id !== draft.id && r.record_date < draft.record_date)
+      .sort((a, b) => a.record_date.localeCompare(b.record_date))
+    
+    if (beforeDraft.length > 0) {
+      const prevDate = beforeDraft[beforeDraft.length - 1].record_date
+      gap = Math.max(1, daysBetween(prevDate, draft.record_date))
+    }
+
+    const deadBefore = beforeDraft.reduce((s, r) => s + num(r.mortality), 0)
+    
     d = calcRow(
       farm,
-      { ...draft, feed_price_per_bag: feedPrice },
-      farm.total_bird - deadBefore - num(draft.mortality)
+      { ...draft, feed_price_per_bag: feedPrice, feed_kg: draft.feed_kg },
+      farm.total_bird - deadBefore - num(draft.mortality),
+      gap
     )
   }
-  const overEgg = d ? d.totalEgg > Math.max(d.totalBird, 0) : false
+  
+  const maxEggs = d ? Math.max(d.totalBird, 0) * gap : 0
+  const overEgg = d ? d.totalEgg > maxEggs : false
 
   const set = (k) => (e) => setDraft((x) => ({ ...x, [k]: e.target.value }))
 
@@ -137,9 +222,8 @@ export default function FarmSection({ farm, index, vaccines, feedItems, onFarmCh
     }))
   }
 
-  // Egg Case ba Total Egg, jeta khushi dao, arekta auto hobe. Total Bird er beshi hobe na.
   function setEgg(kind, v) {
-    const max = Math.max(d.totalBird, 0)
+    const max = Math.max(d.totalBird, 0) * gap
     let total = v === '' ? '' : kind === 'case' ? num(v) * 30 : num(v)
     let capped = false
     if (total !== '' && total > max) {
@@ -148,10 +232,19 @@ export default function FarmSection({ farm, index, vaccines, feedItems, onFarmCh
     }
     setDraft((x) => ({
       ...x,
-      total_egg:
-        total === '' ? '' : kind === 'total' && !capped ? v : String(round(total, 2)),
-      egg_case:
-        total === '' ? '' : kind === 'case' && !capped ? v : String(round(total / 30, 2)),
+      total_egg: total === '' ? '' : kind === 'total' && !capped ? v : String(round(total, 2)),
+      egg_case: total === '' ? '' : kind === 'case' && !capped ? v : String(round(total / 30, 2)),
+    }))
+  }
+
+  function setFeed(kind, v) {
+    let kg = v === '' ? '' : kind === 'kg' ? num(v) : num(v) * 50
+    let bag = v === '' ? '' : kind === 'bag' ? num(v) : num(v) / 50
+    setDraft((x) => ({
+      ...x,
+      feed_kg: kg === '' ? '' : kind === 'kg' ? v : String(round(kg, 2)),
+      feed_bag: bag === '' ? '' : kind === 'bag' ? v : String(round(bag, 2)),
+      feed_touched: true
     }))
   }
 
@@ -171,7 +264,7 @@ export default function FarmSection({ farm, index, vaccines, feedItems, onFarmCh
       vaccine_cost: num(draft.vaccine_cost),
       price_per_egg: num(draft.price_per_egg),
       feed_item: draft.feed_item,
-      feed_bag: num(draft.feed_bag),
+      feed_bag: num(draft.feed_bag), 
       feed_price_per_bag: d.feed_price_per_bag,
     }
     const q = draft.id
@@ -208,17 +301,22 @@ export default function FarmSection({ farm, index, vaccines, feedItems, onFarmCh
       <td><input type="number" min="0" value={draft.mortality} onChange={set('mortality')} /></td>
       <td className="num">{fmt(d.totalBird)}</td>
       <td><input type="number" min="0" step="any" value={draft.egg_case} onChange={(e) => setEgg('case', e.target.value)} /></td>
-      <td><input type="number" min="0" max={Math.max(d.totalBird, 0)} step="any" value={draft.total_egg} onChange={(e) => setEgg('total', e.target.value)} /></td>
+      <td><input type="number" min="0" max={Math.max(d.totalBird, 0) * gap} step="any" value={draft.total_egg} onChange={(e) => setEgg('total', e.target.value)} /></td>
       <td className="num">{fmt(d.eggPct, 1)}%</td>
       <td><input value={draft.medicine} onChange={set('medicine')} /></td>
       <td><input type="number" min="0" step="any" value={draft.medicine_cost} onChange={set('medicine_cost')} /></td>
       <td>
-        <input list={`vac-${farm.id}`} value={draft.vaccine} onChange={set('vaccine')} />
-        <datalist id={`vac-${farm.id}`}>
+        <select value={draft.vaccine} onChange={set('vaccine')}>
+          <option value="">None</option>
+          {draft.vaccine && !vaccines.some((v) => v.name === draft.vaccine) && (
+            <option value={draft.vaccine}>{draft.vaccine}</option>
+          )}
           {vaccines.map((v) => (
-            <option key={v.id} value={v.name} />
+            <option key={v.id} value={v.name}>
+              {v.name}
+            </option>
           ))}
-        </datalist>
+        </select>
       </td>
       <td><input type="number" min="0" step="any" value={draft.vaccine_cost} onChange={set('vaccine_cost')} /></td>
       <td><input type="number" min="0" step="any" value={draft.price_per_egg} onChange={set('price_per_egg')} /></td>
@@ -239,7 +337,9 @@ export default function FarmSection({ farm, index, vaccines, feedItems, onFarmCh
           ))}
         </select>
       </td>
-      <td><input type="number" min="0" step="any" value={draft.feed_bag} onChange={set('feed_bag')} /></td>
+      <td><input type="number" min="0" step="any" value={draft.feed_bag} onChange={(e) => setFeed('bag', e.target.value)} /></td>
+      <td><input type="number" min="0" step="any" value={draft.feed_kg} onChange={(e) => setFeed('kg', e.target.value)} /></td>
+      <td className="num">{fmt(d.feedPerBirdDay, 1)}g</td>
       <td className="num">{fmt(d.feed_price_per_bag)}</td>
       <td className="num">{fmt(d.feedTotal)}</td>
       <td className={`num ${tone(d.profit)}`}>{fmt(d.profit)}</td>
@@ -270,6 +370,8 @@ export default function FarmSection({ farm, index, vaccines, feedItems, onFarmCh
     'Total Egg Price',
     'Feed Item',
     'Feed Bag',
+    'Total Kg',
+    'Feed/Bird/Day (g)',
     'Feed Price/bag',
     'Total Feed Price',
     'Profit',
@@ -279,7 +381,7 @@ export default function FarmSection({ farm, index, vaccines, feedItems, onFarmCh
   return (
     <section className="farm" style={{ '--accent': accent, '--soft': soft }}>
       <div className="farm-head">
-        <h2>Farm Name: {farm.name}</h2>
+        <h2> {farm.name}</h2>
         <div className="meta">
           <span><b>Hatch Date:</b> {fmtDate(farm.hatch_date)}</span>
           <span><b>Hatchery:</b> {farm.hatchery || '-'}</span>
@@ -397,7 +499,9 @@ export default function FarmSection({ farm, index, vaccines, feedItems, onFarmCh
                   <td className="num">{fmt(r.price_per_egg)}</td>
                   <td className="num">{fmt(r.eggPrice)}</td>
                   <td>{r.feed_item}</td>
-                  <td className="num">{fmt(r.feed_bag)}</td>
+                  <td className="num">{fmt(r.feedBag)}</td>
+                  <td className="num">{fmt(r.feedKg)}</td>
+                  <td className="num">{fmt(r.feedPerBirdDay, 1)}g</td>
                   <td className="num">{fmt(r.feed_price_per_bag)}</td>
                   <td className="num">{fmt(r.feedTotal)}</td>
                   <td className={`num ${tone(r.profit)}`}>{fmt(r.profit)}</td>
@@ -439,7 +543,7 @@ export default function FarmSection({ farm, index, vaccines, feedItems, onFarmCh
 
       {overEgg && (
         <p className="msg error">
-          Total Egg cannot be more than Total Bird ({fmt(Math.max(d.totalBird, 0))}).
+          Total Egg cannot be more than Total Bird capacity ({fmt(Math.max(d.totalBird, 0))} birds × {gap} days = {fmt(maxEggs)}).
         </p>
       )}
       {error && <p className="msg error">{error}</p>}
@@ -450,7 +554,7 @@ export default function FarmSection({ farm, index, vaccines, feedItems, onFarmCh
         </button>
       </div>
 
-      {!readOnly && <VaccineLine records={records} />}
+      {!readOnly && <VaccineLine farm={farm} records={records} vaccines={vaccines} />}
 
       {showCull && (
         <CullModal

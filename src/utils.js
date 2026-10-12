@@ -17,6 +17,15 @@ const parse = (s) => {
 // b - a, din e
 export const daysBetween = (a, b) => Math.round((parse(b) - parse(a)) / 86400000)
 
+// n din jog korar jonno
+export function addDays(dateStr, days) {
+  const d = new Date(parse(dateStr) + days * 86400000)
+  const y = d.getUTCFullYear()
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(d.getUTCDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 export function fmtDate(s) {
   if (!s) return ''
   const [y, m, d] = s.split('-')
@@ -62,16 +71,27 @@ export function monthLabel(key) {
 }
 
 // Ekta row er sob hisab
-export function calcRow(farm, r, totalBird) {
+export function calcRow(farm, r, totalBird, gap = 1) {
   const ageDays = daysBetween(farm.hatch_date, r.record_date)
   const hasTotal = r.total_egg !== null && r.total_egg !== undefined && r.total_egg !== ''
   const totalEgg = hasTotal ? num(r.total_egg) : num(r.egg_case) * 30
-  const eggPct = totalBird > 0 ? (totalEgg / totalBird) * 100 : 0
+  
+  // gap diye multiply kore daily er hisab
+  const eggPct = totalBird > 0 && gap > 0 ? (totalEgg / (totalBird * gap)) * 100 : 0
   const eggPrice = totalEgg * num(r.price_per_egg)
-  const feedTotal = num(r.feed_bag) * num(r.feed_price_per_bag)
+
+  const feedBag = num(r.feed_bag)
+  // draft theke feed_kg asle ota nibe, noile bag theke hisab korbe
+  const feedKg = r.feed_kg !== undefined && r.feed_kg !== '' ? num(r.feed_kg) : feedBag * 50
+  const feedTotal = feedBag * num(r.feed_price_per_bag)
+  
   const medicineCost = num(r.medicine_cost)
   const vaccineCost = num(r.vaccine_cost)
   const totalCost = feedTotal + medicineCost + vaccineCost
+
+  // Feed/bird/day in gm
+  const feedPerBirdDay = totalBird > 0 && gap > 0 ? (feedKg * 1000) / (totalBird * gap) : 0
+
   return {
     ...r,
     ageDays,
@@ -79,11 +99,15 @@ export function calcRow(farm, r, totalBird) {
     totalEgg,
     eggPct,
     eggPrice,
+    feedBag,
+    feedKg,
+    feedPerBirdDay,
     feedTotal,
     medicineCost,
     vaccineCost,
     totalCost,
     profit: eggPrice - totalCost,
+    gap // erpor UI er jonno
   }
 }
 
@@ -92,13 +116,16 @@ const byDate = (a, b) =>
     ? (a.created_at || '').localeCompare(b.created_at || '')
     : a.record_date.localeCompare(b.record_date)
 
-// Date onujayi sajiye, mortality jog kore Total Bird ber kore
+// Date onujayi sajiye, mortality jog kore Total Bird ber kore ebong gap hisab kore
 export function computeRows(farm, records) {
   const sorted = [...records].sort(byDate)
   let dead = 0
-  return sorted.map((r) => {
+  return sorted.map((r, i) => {
     dead += num(r.mortality)
-    return calcRow(farm, r, farm.total_bird - dead)
+    const prevDate = i === 0 ? null : sorted[i - 1].record_date
+    // Purboborti record theke koto diner gap
+    const gap = prevDate ? Math.max(1, daysBetween(prevDate, r.record_date)) : 1
+    return calcRow(farm, r, farm.total_bird - dead, gap)
   })
 }
 
