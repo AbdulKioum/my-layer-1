@@ -1,4 +1,5 @@
 export const num = (v) => Number(v) || 0
+export const round = (n, d = 2) => Math.round(n * 10 ** d) / 10 ** d
 
 export function todayStr() {
   const d = new Date()
@@ -16,15 +17,6 @@ const parse = (s) => {
 // b - a, din e
 export const daysBetween = (a, b) => Math.round((parse(b) - parse(a)) / 86400000)
 
-export function addDays(s, n) {
-  return new Date(parse(s) + n * 86400000).toISOString().slice(0, 10)
-}
-
-export function formatAge(days) {
-  if (days < 0) return '-'
-  return `${Math.floor(days / 7)}w ${days % 7}d`
-}
-
 export function fmtDate(s) {
   if (!s) return ''
   const [y, m, d] = s.split('-')
@@ -35,13 +27,51 @@ export function fmt(n, max = 2) {
   return Number(n).toLocaleString('en-US', { maximumFractionDigits: max })
 }
 
+function monthsDays(a, b) {
+  const [y1, m1, d1] = a.split('-').map(Number)
+  const [y2, m2, d2] = b.split('-').map(Number)
+  let months = (y2 - y1) * 12 + (m2 - m1)
+  if (d2 < d1) months--
+  const total = m1 - 1 + months
+  const ay = y1 + Math.floor(total / 12)
+  const am = (total % 12) + 1
+  const dim = new Date(Date.UTC(ay, am, 0)).getUTCDate()
+  const anchor = `${ay}-${String(am).padStart(2, '0')}-${String(Math.min(d1, dim)).padStart(2, '0')}`
+  return { months, days: daysBetween(anchor, b) }
+}
+
+// mode: 'weeks' | 'months' | 'days'
+export function formatAgeMode(hatch, date, mode) {
+  const days = daysBetween(hatch, date)
+  if (days < 0) return '-'
+  if (mode === 'days') return `${days} days`
+  if (mode === 'months') {
+    const m = monthsDays(hatch, date)
+    return `${m.months}m ${m.days}d`
+  }
+  return `${Math.floor(days / 7)}w ${days % 7}d`
+}
+
+export function monthLabel(key) {
+  const [y, m] = key.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleString('en-US', {
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  })
+}
+
 // Ekta row er sob hisab
 export function calcRow(farm, r, totalBird) {
   const ageDays = daysBetween(farm.hatch_date, r.record_date)
-  const totalEgg = num(r.egg_case) * 30
+  const hasTotal = r.total_egg !== null && r.total_egg !== undefined && r.total_egg !== ''
+  const totalEgg = hasTotal ? num(r.total_egg) : num(r.egg_case) * 30
   const eggPct = totalBird > 0 ? (totalEgg / totalBird) * 100 : 0
   const eggPrice = totalEgg * num(r.price_per_egg)
   const feedTotal = num(r.feed_bag) * num(r.feed_price_per_bag)
+  const medicineCost = num(r.medicine_cost)
+  const vaccineCost = num(r.vaccine_cost)
+  const totalCost = feedTotal + medicineCost + vaccineCost
   return {
     ...r,
     ageDays,
@@ -50,17 +80,21 @@ export function calcRow(farm, r, totalBird) {
     eggPct,
     eggPrice,
     feedTotal,
-    profit: eggPrice - feedTotal,
+    medicineCost,
+    vaccineCost,
+    totalCost,
+    profit: eggPrice - totalCost,
   }
 }
 
+const byDate = (a, b) =>
+  a.record_date === b.record_date
+    ? (a.created_at || '').localeCompare(b.created_at || '')
+    : a.record_date.localeCompare(b.record_date)
+
 // Date onujayi sajiye, mortality jog kore Total Bird ber kore
 export function computeRows(farm, records) {
-  const sorted = [...records].sort((a, b) =>
-    a.record_date === b.record_date
-      ? (a.created_at || '').localeCompare(b.created_at || '')
-      : a.record_date.localeCompare(b.record_date)
-  )
+  const sorted = [...records].sort(byDate)
   let dead = 0
   return sorted.map((r) => {
     dead += num(r.mortality)
@@ -68,42 +102,14 @@ export function computeRows(farm, records) {
   })
 }
 
-const splitNames = (s) =>
-  (s || '')
-    .split(',')
-    .map((x) => x.trim().toLowerCase())
-    .filter(Boolean)
-
-// Vaccine comment er hisab
-export function vaccineInfo(farm, records, vaccines) {
-  if (!vaccines.length) return { empty: true }
-
-  const today = todayStr()
-  const ageToday = daysBetween(farm.hatch_date, today)
-  const given = new Set(records.flatMap((r) => splitNames(r.vaccine)))
-  const isGiven = (v) => given.has(v.name.trim().toLowerCase())
-
-  const list = [...vaccines].sort((a, b) => a.age_days - b.age_days)
-  const lastAge = list[list.length - 1].age_days
-
-  const dueToday = list.filter((v) => v.age_days === ageToday && !isGiven(v))
-  const overdue = list.filter((v) => v.age_days < ageToday && !isGiven(v))
-  const upcoming = list.filter(
-    (v) => v.age_days > ageToday && v.age_days <= ageToday + 7
-  )
-
-  let live = null
-  if (ageToday > lastAge) {
-    const listEnd = addDays(farm.hatch_date, lastAge)
-    const lastGiven = records
-      .filter((r) => splitNames(r.vaccine).length)
-      .map((r) => r.record_date)
-      .sort()
-      .pop()
-    const ref = lastGiven && lastGiven > listEnd ? lastGiven : listEnd
-    const since = daysBetween(ref, today)
-    live = { since, due: since >= 30, nextIn: 30 - since }
+// Sesh kon vaccine kotodin age deya hoyeche
+export function lastVaccine(records) {
+  const list = records.filter((r) => (r.vaccine || '').trim()).sort(byDate)
+  if (!list.length) return null
+  const r = list[list.length - 1]
+  return {
+    name: r.vaccine.trim(),
+    date: r.record_date,
+    daysAgo: daysBetween(r.record_date, todayStr()),
   }
-
-  return { ageToday, dueToday, overdue, upcoming, live }
 }

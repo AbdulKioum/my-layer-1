@@ -1,12 +1,19 @@
 import { useState } from 'react'
 import { supabase } from '../supabaseClient'
 
-export default function Login() {
+const NOT_ALLOWED = 'This email is not allowed. Ask the admin to add your email.'
+
+function friendly(message) {
+  const m = message.toLowerCase()
+  return m.includes('database error') || m.includes('not allowed') ? NOT_ALLOWED : message
+}
+
+export default function Login({ blocked }) {
   const [mode, setMode] = useState('signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState({ type: '', text: '' })
+  const [msg, setMsg] = useState(blocked ? { type: 'error', text: NOT_ALLOWED } : { type: '', text: '' })
 
   async function submit(e) {
     e.preventDefault()
@@ -14,10 +21,10 @@ export default function Login() {
     setMsg({ type: '', text: '' })
     if (mode === 'signin') {
       const { error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) setMsg({ type: 'error', text: error.message })
+      if (error) setMsg({ type: 'error', text: friendly(error.message) })
     } else {
       const { data, error } = await supabase.auth.signUp({ email, password })
-      if (error) setMsg({ type: 'error', text: error.message })
+      if (error) setMsg({ type: 'error', text: friendly(error.message) })
       else if (!data.session)
         setMsg({ type: 'ok', text: 'Account created. Check your email to confirm, then log in.' })
     }

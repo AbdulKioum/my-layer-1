@@ -4,7 +4,7 @@ export default function Feed() {
   return (
     <ListEditor
       title="Feed Price"
-      hint="Add feed items with the price per bag. These appear in the Feed Item list on the Homepage table."
+      hint="Add feed items with the price per bag. For auto-select by age, use these names: Nourish Layer Starter (0-8 weeks), Nourish Layer Grower (8-17 weeks), Nourish Layer 1 (18+ weeks)."
       table="feed_items"
       orderCol="name"
       empty="No feed item added yet."
