@@ -37,6 +37,7 @@ const newDraft = (farm, feedItems) => {
     feed_item: defaultFeedFor(daysBetween(farm.hatch_date, date), feedItems),
     feed_bag: '',
     feed_kg: '',
+    body_weight: '', 
     feed_touched: false,
   }
 }
@@ -55,6 +56,7 @@ const draftFromRow = (r) => ({
   feed_item: r.feed_item || '',
   feed_bag: str(r.feedBag ?? r.feed_bag),
   feed_kg: str(r.feedKg ?? num(r.feed_bag) * 50),
+  body_weight: str(r.body_weight), 
   feed_touched: true,
   orig_feed_item: r.feed_item || '',
   feed_snapshot: num(r.feed_price_per_bag),
@@ -74,7 +76,6 @@ function VaccineLine({ farm, records, vaccines }) {
   let nextTexts = []
   let isScheduled = false
 
-  // ১. সাধারণ রুটিন (১৮ সপ্তাহের আগ পর্যন্ত)
   if (currentAgeDays <= 18 * 7) {
     const upcoming = vaccines.filter(vac => {
       const vAge = Number(vac.age_days)
@@ -90,7 +91,6 @@ function VaccineLine({ farm, records, vaccines }) {
     }
   }
 
-  // ২. রিকারিং (Recurring) ND/IB Live ভ্যাকসিন
   let lastRecurringDate = null
   const sortedRecs = [...records].sort((a, b) => a.record_date.localeCompare(b.record_date))
   
@@ -144,7 +144,7 @@ function VaccineLine({ farm, records, vaccines }) {
   )
 }
 
-export default function FarmSection({ farm, index, vaccines, feedItems, onFarmChanged }) {
+export default function FarmSection({ farm, index, vaccines, feedItems, layerStandards, onFarmChanged }) {
   const [records, setRecords] = useState([])
   const [loading, setLoading] = useState(true)
   const [shown, setShown] = useState(3)
@@ -156,7 +156,7 @@ export default function FarmSection({ farm, index, vaccines, feedItems, onFarmCh
   const [showCost, setShowCost] = useState(false)
   const [showCull, setShowCull] = useState(false)
   const readOnly = !!farm.culled_at
-  const colCount = readOnly ? 20 : 21
+  const colCount = readOnly ? 22 : 23
 
   const [accent, soft] = PALETTE[index % PALETTE.length]
 
@@ -266,6 +266,7 @@ export default function FarmSection({ farm, index, vaccines, feedItems, onFarmCh
       feed_item: draft.feed_item,
       feed_bag: num(draft.feed_bag), 
       feed_price_per_bag: d.feed_price_per_bag,
+      body_weight: draft.body_weight === '' ? null : num(draft.body_weight) // ওজন সেভ করা
     }
     const q = draft.id
       ? supabase.from('farm_records').update(payload).eq('id', draft.id)
@@ -292,14 +293,28 @@ export default function FarmSection({ farm, index, vaccines, feedItems, onFarmCh
     else onFarmChanged()
   }
 
+ 
+  const getStandardWeight = (date) => {
+    const ageWeeks = Math.floor(daysBetween(farm.hatch_date, date) / 7)
+    const std = layerStandards?.find(l => l.breed === farm.breed && l.age_weeks === ageWeeks)
+    if (!std || (!std.body_weight_min && !std.body_weight_max)) return '-'
+    if (std.body_weight_min && std.body_weight_max) return `${std.body_weight_min} - ${std.body_weight_max}`
+    return std.body_weight_min || std.body_weight_max
+  }
+
   const tone = (p) => (p < 0 ? 'neg' : p > 0 ? 'pos' : '')
 
   const draftRow = d && (
     <tr className="draft" key="draft">
       <td><input type="date" value={draft.record_date} onChange={setDate} /></td>
       <td>{formatAgeMode(farm.hatch_date, draft.record_date, ageMode)}</td>
-      <td><input type="number" min="0" value={draft.mortality} onChange={set('mortality')} /></td>
+      <td><input type="number" min="0" value={draft.mortality} onChange={set('mortality')} style={{width: '60px'}}/></td>
       <td className="num">{fmt(d.totalBird)}</td>
+      
+      
+      <td><input type="number" min="0" step="any" value={draft.body_weight} onChange={set('body_weight')} style={{width: '70px'}} placeholder="gm" /></td>
+      <td className="num" style={{ color: 'var(--muted)' }}>{getStandardWeight(draft.record_date)}</td>
+      
       <td><input type="number" min="0" step="any" value={draft.egg_case} onChange={(e) => setEgg('case', e.target.value)} /></td>
       <td><input type="number" min="0" max={Math.max(d.totalBird, 0) * gap} step="any" value={draft.total_egg} onChange={(e) => setEgg('total', e.target.value)} /></td>
       <td className="num">{fmt(d.eggPct, 1)}%</td>
@@ -359,6 +374,8 @@ export default function FarmSection({ farm, index, vaccines, feedItems, onFarmCh
     'AGE',
     'Mortality',
     'Total Bird',
+    'Weight (g)', 
+    'Standard (g)', 
     'Egg Case',
     'Total Egg',
     'Egg %',
@@ -489,6 +506,10 @@ export default function FarmSection({ farm, index, vaccines, feedItems, onFarmCh
                   <td>{formatAgeMode(farm.hatch_date, r.record_date, ageMode)}</td>
                   <td className="num">{fmt(r.mortality)}</td>
                   <td className="num">{fmt(r.totalBird)}</td>
+                  
+                  <td className="num">{r.body_weight !== null && r.body_weight !== undefined ? fmt(r.body_weight) : '-'}</td>
+                  <td className="num" style={{ color: 'var(--muted)' }}>{getStandardWeight(r.record_date)}</td>
+
                   <td className="num">{fmt(r.totalEgg / 30, 2)}</td>
                   <td className="num">{fmt(r.totalEgg)}</td>
                   <td className="num">{fmt(r.eggPct, 1)}%</td>

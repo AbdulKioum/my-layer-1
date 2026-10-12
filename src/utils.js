@@ -70,7 +70,7 @@ export function monthLabel(key) {
   })
 }
 
-// Ekta row er sob hisab
+
 export function calcRow(farm, r, totalBird, gap = 1) {
   const ageDays = daysBetween(farm.hatch_date, r.record_date)
   const hasTotal = r.total_egg !== null && r.total_egg !== undefined && r.total_egg !== ''
@@ -107,7 +107,7 @@ export function calcRow(farm, r, totalBird, gap = 1) {
     vaccineCost,
     totalCost,
     profit: eggPrice - totalCost,
-    gap // erpor UI er jonno
+    gap 
   }
 }
 
@@ -116,7 +116,7 @@ const byDate = (a, b) =>
     ? (a.created_at || '').localeCompare(b.created_at || '')
     : a.record_date.localeCompare(b.record_date)
 
-// Date onujayi sajiye, mortality jog kore Total Bird ber kore ebong gap hisab kore
+
 export function computeRows(farm, records) {
   const sorted = [...records].sort(byDate)
   let dead = 0
@@ -129,7 +129,7 @@ export function computeRows(farm, records) {
   })
 }
 
-// Sesh kon vaccine kotodin age deya hoyeche
+
 export function lastVaccine(records) {
   const list = records.filter((r) => (r.vaccine || '').trim()).sort(byDate)
   if (!list.length) return null

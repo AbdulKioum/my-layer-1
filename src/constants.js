@@ -30,7 +30,7 @@ export const PALETTE = [
 
 const norm = (s) => s.toLowerCase().replace(/\s+/g, ' ').trim()
 
-// Boyosh onujayi default feed:
+
 // < 8 week: Starter, 8 theke 17 week: Grower, 18 week+: Layer 1
 export function defaultFeedFor(ageDays, feedItems) {
   const weeks = ageDays / 7

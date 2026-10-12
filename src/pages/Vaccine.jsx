@@ -1,13 +1,13 @@
 import ListEditor from '../components/ListEditor'
 
-export default function Vaccine() {
+export default function Vaccine({ isAdmin }) {
   return (
     <ListEditor
       title="Vaccine"
-      hint="Add each vaccine with the age (in days) when it is needed. The Homepage comment uses this list."
-      table="vaccines"
+       table="vaccines"
       orderCol="age_days"
       empty="No vaccine added yet."
+      readOnly={!isAdmin}
       fields={[
         { key: 'age_days', label: 'Age (days)', type: 'number', required: true },
         { key: 'name', label: 'Vaccine Name', type: 'text', required: true },
@@ -25,7 +25,6 @@ export default function Vaccine() {
             'Sub Cutaneous/Muscle',
           ],
         },
-        
         { key: 'note', label: 'Note', type: 'text' },
       ]}
     />

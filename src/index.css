@@ -112,7 +112,7 @@ input, select {
 .msg.error { color: var(--danger); }
 .msg.ok { color: var(--ok); }
 
-/* profile banner (Homepage er upore) */
+
 .profile-bar {
   display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
   gap: 4px 20px; margin-bottom: 14px; padding: 8px 16px;
@@ -128,7 +128,7 @@ input, select {
 .toolbar label { font-weight: 600; }
 .toolbar select { width: auto; min-width: 220px; }
 
-/* farm section: protyek farm er alada rong */
+
 .farm {
   --accent: #2b7a78; --soft: #e1f0ef;
   background: var(--paper);

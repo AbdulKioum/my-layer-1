@@ -5,6 +5,9 @@ import Home from './pages/Home'
 import AddFarm from './pages/AddFarm'
 import Vaccine from './pages/Vaccine'
 import Feed from './pages/Feed'
+import LayerStandards from './pages/LayerStandards' 
+
+const ADMIN_EMAIL = 'abdulkioum98@gmail.com'
 
 const Icon = ({ children }) => (
   <svg
@@ -51,6 +54,13 @@ const ICONS = {
       <path d="M9 7V5a3 3 0 0 1 6 0v2" />
     </Icon>
   ),
+  layerStandards: ( 
+    <Icon>
+      <line x1="18" y1="20" x2="18" y2="10" />
+      <line x1="12" y1="20" x2="12" y2="4" />
+      <line x1="6" y1="20" x2="6" y2="14" />
+    </Icon>
+  ),
   culled: (
     <Icon>
       <rect x="3" y="4" width="18" height="5" rx="1" />
@@ -74,6 +84,7 @@ const NAV = [
   ['home', 'Homepage'],
   ['addFarm', 'Add Farm'],
   ['culled', 'Culled Farm'],
+  ['layerStandards', 'Layer Standards'], 
   ['vaccine', 'Vaccine'],
   ['feed', 'Feed Price'],
 ]
@@ -92,7 +103,6 @@ export default function App() {
     return () => sub.subscription.unsubscribe()
   }, [])
 
-  // Email allowed list e na thakle ber kore dibe
   useEffect(() => {
     if (!session) {
       setAllowed(null)
@@ -116,8 +126,8 @@ export default function App() {
   if (!session) return <Login blocked={blocked} />
   if (allowed !== true) return <div className="center-screen">Loading...</div>
 
-  // Homepage e sidebar shudhu icon, click korle puro dekhabe
   const collapsed = page === 'home' && !expanded
+  const isAdmin = session.user.email === ADMIN_EMAIL
 
   function go(key) {
     setPage(key)
@@ -135,7 +145,6 @@ export default function App() {
             <button
               className="toggle"
               title={collapsed ? 'Open menu' : 'Close menu'}
-              aria-label={collapsed ? 'Open menu' : 'Close menu'}
               onClick={(e) => {
                 e.stopPropagation()
                 setExpanded(!expanded)
@@ -187,8 +196,9 @@ export default function App() {
         {page === 'home' && <Home onNavigate={go} profile={profile} />}
         {page === 'culled' && <Home culled onNavigate={go} />}
         {page === 'addFarm' && <AddFarm onSaved={() => go('home')} />}
-        {page === 'vaccine' && <Vaccine />}
-        {page === 'feed' && <Feed />}
+        {page === 'layerStandards' && <LayerStandards isAdmin={isAdmin} />} {/* <-- নতুন পেজ */}
+        {page === 'vaccine' && <Vaccine isAdmin={isAdmin} />}
+        {page === 'feed' && <Feed isAdmin={isAdmin} />}
       </main>
     </div>
   )

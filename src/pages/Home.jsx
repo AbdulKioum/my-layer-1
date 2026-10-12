@@ -30,9 +30,8 @@ function Banner({ profile }) {
   )
 }
 
-// culled=false : Homepage (chalu farm), culled=true : Culled Farm page
 export default function Home({ onNavigate, culled = false, profile }) {
-  const [s, setS] = useState({ loading: true, farms: [], vaccines: [], feed: [], error: '' })
+  const [s, setS] = useState({ loading: true, farms: [], vaccines: [], feed: [], layerStandards: [], error: '' })
   const [selected, setSelected] = useState('all')
 
   async function load() {
@@ -41,17 +40,19 @@ export default function Home({ onNavigate, culled = false, profile }) {
       ? fq.not('culled_at', 'is', null).order('culled_at', { ascending: false })
       : fq.is('culled_at', null).order('created_at', { ascending: true })
 
-    const [f, v, fd] = await Promise.all([
+    const [f, v, fd, ls] = await Promise.all([
       fq,
       supabase.from('vaccines').select('*').order('age_days', { ascending: true }),
       supabase.from('feed_items').select('*').order('name', { ascending: true }),
+      supabase.from('layer_standards').select('*') 
     ])
-    const err = f.error || v.error || fd.error
+    const err = f.error || v.error || fd.error || ls.error
     setS({
       loading: false,
       farms: f.data || [],
       vaccines: v.data || [],
       feed: fd.data || [],
+      layerStandards: ls.data || [],
       error: err ? err.message : '',
     })
   }
@@ -112,6 +113,7 @@ export default function Home({ onNavigate, culled = false, profile }) {
           index={index}
           vaccines={s.vaccines}
           feedItems={s.feed}
+          layerStandards={s.layerStandards} 
           onFarmChanged={load}
         />
       ))}
