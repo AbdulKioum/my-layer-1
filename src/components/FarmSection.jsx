@@ -456,7 +456,7 @@ export default function FarmSection({ farm, index, vaccines, feedItems, layerSta
     <section className="farm" style={{ '--accent': accent, '--soft': soft }}>
       <div className="farm-head">
         <h2 style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          Farm Name: {farm.name}
+           {farm.name}
           <button 
             className="btn small alt" 
             onClick={() => setShowInfo(true)}
